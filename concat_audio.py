@@ -1,4 +1,4 @@
-import os, sys, ctypes, random, traceback, argparse, re
+import os, sys, ctypes, random, traceback, argparse, re, time
 import pyperclip, soundfile
 
 import win32com.client  # .lnk shortcuts
@@ -19,6 +19,7 @@ num = 0
 longueur = 0
 noise_gate = 0
 fade_len = .3   # * .1 sec
+browsing_mode = False
 
 #--------------------------------------------------------------------------------------
 fade_len = fade_len *.1
@@ -29,18 +30,20 @@ max_msg_box = 10
 
 #--------------------------------------------------------------------------------------
 def get_args():
-    global packs_path, PATHS, num, longueur, noise_gate
+    global packs_path, PATHS, num, longueur, noise_gate, browsing_mode
     parser = argparse.ArgumentParser(description='Concatenante multiple audio files.')
     parser.add_argument('--paths', nargs='+', action="store", dest="PATHS", 
                         default=[packs_path], help='root(s) of folder search')
     parser.add_argument('--num', action="store", type=int, dest="num", default=10, help='number of sounds')
     parser.add_argument('--len', action="store", type=float, dest="len", default=0, help='lenght of each sample')
     parser.add_argument('--gate', action="store", dest="gate", default='0', help='threshold of noisegate')
+    parser.add_argument('--browse', action="store", type=int, dest="browse", default='0', help='0 or 1 for in the files were chosen in concat_audio browsing mode')
     arg_results = parser.parse_args()
     PATHS = arg_results.PATHS 
     num = arg_results.num
     longueur = arg_results.len
     noise_gate = arg_results.gate
+    browsing_mode = arg_results.browse
 
 def get_input_path():
     input_paths = PATHS
@@ -57,13 +60,12 @@ def get_sounds(paths):
 def get_sounds_recursive(root, snds=[]):
     for s in os.listdir(root):
         path = os.path.join(root, s)
+        if is_lnk(path):
+            path = get_lnk_source(path)     
         if os.path.isdir(path):
             get_sounds_recursive(path, snds) 
-        else:
-            if is_lnk(path):
-                path = get_lnk_source(path)
-            if is_sound_file(path):
-                snds.append(path)
+        elif is_sound_file(path):
+            snds.append(path)
     return snds
 
 def is_sound_file(f):
@@ -77,12 +79,12 @@ def is_sound_file(f):
 def choose_some_sounds(snds):
     selection = []
     for _ in range(int(num)):
-        selection.append(random.choice(snds))
+        snd = random.choice(snds)
+        selection.append(snd)
     return selection
 
 def gen_temp_files(snds):
     for i, s in enumerate(snds):
-        print(type(s))
         if is_wav_vorbis(s):
             s = wav_to_ogg(s, i)
             snds[i] = s
@@ -160,16 +162,20 @@ def get_output_name():
     return output_name
 
 def format_folder_name(paths):
-    words = ""
-    for i in range(len(paths)):
-        folder_name = os.path.basename(paths[i])
-        if folder_name[0].isdigit() or folder_name[0] == "_":
-            folder_name = folder_name[1:]
-        folder_name = list(filter(lambda c: c != " ", folder_name))
-        folder_name = list(map(lambda w: w[0].upper() + w[1:], folder_name))
-        words += "".join(folder_name)
-        if (i < len(paths)-1):
-            words += "_"
+    global browsing_mode
+    if browsing_mode:
+        words = str(time.time())
+    else:
+        words = ""
+        for i in range(len(paths)):
+            folder_name = os.path.basename(paths[i])
+            if folder_name[0].isdigit() or folder_name[0] == "_":
+                folder_name = folder_name[1:]
+            folder_name = list(filter(lambda c: c != " ", folder_name))
+            folder_name = list(map(lambda w: w[0].upper() + w[1:], folder_name))
+            words += "".join(folder_name)
+            if (i < len(paths)-1):
+                words += "_"
     return words  
 
 def format_sound_cut_option(longueur, noise_gate):

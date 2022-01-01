@@ -1,4 +1,4 @@
-import os, sys, ctypes, random, traceback, argparse, re, time
+import os, sys, ctypes, random, traceback, argparse, re, time, datetime, string
 import pyperclip, soundfile
 
 import win32com.client  # .lnk shortcuts
@@ -164,7 +164,7 @@ def get_output_name():
 def format_folder_name(paths):
     global browsing_mode
     if browsing_mode:
-        words = str(time.time())
+        words = get_week_day() + "_" + get_random_letters(2) #str(time.time())
     else:
         words = ""
         for i in range(len(paths)):
@@ -190,6 +190,16 @@ def format_sound_cut_option(longueur, noise_gate):
     elif noise_gate:
         word = "{}dB".format(noise_gate)
     return word
+
+def get_week_day():
+    day = datetime.datetime.today().weekday()
+    return ["Lun", "Mar", "Merc", "Jeu", "Ven", "Sam", "Dim"][day]
+
+def get_random_letters(n):
+    txt = ""
+    for i in range(n):
+        txt += random.choice(string.ascii_letters)
+    return txt
 
 # --------------------------------------
 def delete_temp_files():

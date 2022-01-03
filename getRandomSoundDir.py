@@ -1,4 +1,5 @@
 import os, random
+import paths
 
 hasard = 10
 
@@ -15,5 +16,5 @@ def pick_dir(root):
         return pick_dir(d)
 
 
-d = pick_dir(r'C:\Program Files\Image-Line\FL Studio 20\Data\Patches\Packs')
+d = pick_dir(paths.packs_path)
 print(d)

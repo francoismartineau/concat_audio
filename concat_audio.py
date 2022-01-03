@@ -1,7 +1,10 @@
-import os, sys, ctypes, random, traceback, argparse, re, time, datetime, string
+import os, ctypes, random, traceback, argparse, datetime, string
 import pyperclip, soundfile
-
+# pip install pyperclip
+# pip install soundfile
 import win32com.client  # .lnk shortcuts
+# pip install pywin32
+import paths
 
 """ 
     Concatenates randomly chosen sounds in one sound file.
@@ -13,7 +16,6 @@ import win32com.client  # .lnk shortcuts
     --gate When this dB threshold is reached, the sound is cut (ex: -20) (0 to deactivate and use --len)
 
 """
-packs_path = r"C:\Program Files\Image-Line\FL Studio 20\Data\Patches\Packs"
 PATHS = ""
 num = 0
 longueur = 0
@@ -24,16 +26,16 @@ browsing_mode = False
 #--------------------------------------------------------------------------------------
 fade_len = fade_len *.1
 fade_len = min(fade_len, longueur)
-output_dir = os.path.join(packs_path, "_gen2")
+output_dir = os.path.join(paths.packs_path, "_gen2")
 temp_prefix = '___temp'
 max_msg_box = 10
 
 #--------------------------------------------------------------------------------------
 def get_args():
-    global packs_path, PATHS, num, longueur, noise_gate, browsing_mode
+    global PATHS, num, longueur, noise_gate, browsing_mode
     parser = argparse.ArgumentParser(description='Concatenante multiple audio files.')
     parser.add_argument('--paths', nargs='+', action="store", dest="PATHS", 
-                        default=[packs_path], help='root(s) of folder search')
+                        default=[paths.packs_path], help='root(s) of folder search')
     parser.add_argument('--num', action="store", type=int, dest="num", default=10, help='number of sounds')
     parser.add_argument('--len', action="store", type=float, dest="len", default=0, help='lenght of each sample')
     parser.add_argument('--gate', action="store", dest="gate", default='0', help='threshold of noisegate')
@@ -90,7 +92,7 @@ def gen_temp_files(snds):
             snds[i] = s
 
         sr = get_samplerate(s) 
-        cmd = 'ffmpeg -ss 00:00:00 -t {} -i "{}" -ar {} '.format(longueur, s, sr)
+        cmd = '{} -ss 00:00:00 -t {} -i "{}" -ar {} '.format(paths.ffmpeg_path, longueur, s, sr)
         num_samples = int(longueur*sr) #python has a built-in module to get the sample rate of a wav file. The module pydub gives mp3 sample rate.
         fade_start = int(num_samples - fade_len*sr)
         cmd += '-af '
@@ -140,7 +142,7 @@ def gen_output():
     txt.close()
     output_name = get_output_name()
     msg_box(output_name, copy=True)
-    cmd = 'ffmpeg -f concat -safe 0 -i "{}" -c copy -y "{}.wav"'.format(txt_path, os.path.join(output_dir, output_name))
+    cmd = '{} -f concat -safe 0 -i "{}" -c copy -y "{}.wav"'.format(paths.ffmpeg_path, txt_path, os.path.join(output_dir, output_name))
     os.system(cmd)
 
 # --------------------------------------

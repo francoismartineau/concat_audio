@@ -86,14 +86,17 @@ def choose_some_sounds(snds):
     return selection
 
 def gen_temp_files(snds):
-    for i, s in enumerate(snds):
-        if is_wav_vorbis(s):
-            s = wav_to_ogg(s, i)
-            snds[i] = s
+    for i, s_path in enumerate(snds):
+        if is_wav_vorbis(s_path):
+            s_path = wav_to_ogg(s_path, i)
+            snds[i] = s_path
 
-        sr = get_samplerate(s) 
-        cmd = '{} -ss 00:00:00 -t {} -i "{}" -ar {} '.format(paths.ffmpeg_path, longueur, s, sr)
-        num_samples = int(longueur*sr) #python has a built-in module to get the sample rate of a wav file. The module pydub gives mp3 sample rate.
+        cmd = '{} -ss 00:00:00'.format(paths.ffmpeg_path)
+        if (longueur != 0):
+            cmd += ' -t {}'.format(longueur)
+        sr = get_samplerate(s_path) 
+        cmd += ' -i "{}" -ar {} '.format(s_path, sr)
+        num_samples = int(longueur*sr) #python has a built-in module to get the sample rate of a wav file. The module pydub gives mp3 bit depth
         fade_start = int(num_samples - fade_len*sr)
         cmd += '-af '
         if longueur != 0:
@@ -101,21 +104,23 @@ def gen_temp_files(snds):
         elif noise_gate != 0:
             cmd += 'silenceremove=start_periods=0:start_duration=0:start_threshold=0:stop_periods=-1:stop_duration=0.01:stop_threshold={}dB'.format(noise_gate)
         output_path = os.path.join(output_dir, '{}{:02d}.wav'.format(temp_prefix, i))
+        cmd += ' -c:a pcm_s16le -ar 44100'      # force 44100 16 bits
+        cmd += ' -ac 2'                         # force to stereo
         cmd += ' -y "{}"'.format(output_path)
         os.system(cmd)
 
-def is_wav_vorbis(s):
+def is_wav_vorbis(s_path):
     result = False
     b = b''
-    with open(s, 'rb') as f:
+    with open(s_path, 'rb') as f:
         b = f.read()
     if b'ENCODER=vorbis.acm' in b:
         result = True
     return result
 
-def wav_to_ogg(s, i):
+def wav_to_ogg(s_path, i):
     b = b''
-    with open(s, 'rb') as f:
+    with open(s_path, 'rb') as f:
         b = f.read()
     offset = b.index(b'OggS')
     b = b[offset:]
@@ -124,11 +129,12 @@ def wav_to_ogg(s, i):
         f.write(b)
     return ogg_path
 
-def get_samplerate(s):
+def get_samplerate(s_path):
     sr = 44100
     try:
-        _, sr = soundfile.read(s)
+        _, sr = soundfile.read(s_path)
     except:
+        print("error")
         pass
     return sr
 
@@ -142,7 +148,9 @@ def gen_output():
     txt.close()
     output_name = get_output_name()
     msg_box(output_name, copy=True)
-    cmd = '{} -f concat -safe 0 -i "{}" -c copy -y "{}.wav"'.format(paths.ffmpeg_path, txt_path, os.path.join(output_dir, output_name))
+    cmd = '{} -f concat -safe 0 -i "{}"'.format(paths.ffmpeg_path, txt_path)
+    cmd += ' -c copy'                      # copy stream
+    cmd += ' -y "{}.wav"'.format(os.path.join(output_dir, output_name))
     os.system(cmd)
 
 # --------------------------------------

@@ -17,73 +17,110 @@ import paths
 
 """
 PATHS = ""
-num = 0
+num_snds = 0
+force_num_snds = False
 longueur = 0
 noise_gate = 0
 fade_len = .3   # * .1 sec
-browsing_mode = False
+pre_gen_browser_mode = False
 
 #--------------------------------------------------------------------------------------
 fade_len = fade_len *.1
 fade_len = min(fade_len, longueur)
-output_dir = os.path.join(paths.packs_path, "_gen2")
 temp_prefix = '___temp'
 max_msg_box = 10
 
 #--------------------------------------------------------------------------------------
 def get_args():
-    global PATHS, num, longueur, noise_gate, browsing_mode
+    global PATHS, num_snds, longueur, noise_gate, pre_gen_browser_mode, force_num_snds
     parser = argparse.ArgumentParser(description='Concatenante multiple audio files.')
     parser.add_argument('--paths', nargs='+', action="store", dest="PATHS", 
-                        default=[paths.packs_path], help='root(s) of folder search')
+                        default=[paths.packs_path], help='Sound files will be included in result. Folder paths will have some (or all) of its contained files included in result. Multiple paths accepted.')
     parser.add_argument('--num', action="store", type=int, dest="num", default=10, help='number of sounds')
+    parser.add_argument('--forceNum', action="store_true", dest="forceNum", help='If true, asking more sounds than provided will use some sounds more than once')
     parser.add_argument('--len', action="store", type=float, dest="len", default=0, help='lenght of each sample')
     parser.add_argument('--gate', action="store", dest="gate", default='0', help='threshold of noisegate')
-    parser.add_argument('--browse', action="store", type=int, dest="browse", default='0', help='0 or 1 for in the files were chosen in concat_audio browsing mode')
+    parser.add_argument('--preGenBrowser', action="store_true", dest="preGenBrowser", help='if the files were chosen in concat_audio browsing mode')
     arg_results = parser.parse_args()
     PATHS = arg_results.PATHS 
-    num = arg_results.num
+    num_snds = arg_results.num
+    force_num_snds = arg_results.forceNum
     longueur = arg_results.len
     noise_gate = arg_results.gate
-    browsing_mode = arg_results.browse
+    pre_gen_browser_mode = arg_results.preGenBrowser
 
-def get_input_path():
+def get_input_paths():
     input_paths = PATHS
     for i_p in input_paths:
         assert os.path.isdir(i_p)
     return input_paths
 
-def get_sounds(paths):
+def get_pre_gen_browser_snds(input_paths):
+    folder_paths, file_paths = [], []
+    i = 0
+    found = False
+    while i < len(input_paths):
+        if (os.path.normpath(input_paths[i]) == paths.pre_gen_browser_dir):
+            found = True
+            break
+        i += 1
+    if found:
+        input_paths.remove(paths.pre_gen_browser_dir)
+        for path in os.listdir(paths.pre_gen_browser_dir):
+            path = os.path.join(paths.pre_gen_browser_dir, path)
+            if is_lnk(path):
+                path = get_lnk_source(path)
+            if os.path.isdir(path):
+                folder_paths.append(path)
+            elif is_sound_file(path):
+                file_paths.append(path)
+    return folder_paths, file_paths
+
+def get_folder_sounds(folder_paths):
     sounds = []
-    for p in paths:
-        sounds += get_sounds_recursive(p)
+    for p in folder_paths:
+        sounds += get_folder_sounds_recursive(p)
     return sounds
 
-def get_sounds_recursive(root, snds=[]):
+def get_folder_sounds_recursive(root, snds=[]):
     for s in os.listdir(root):
         path = os.path.join(root, s)
         if is_lnk(path):
             path = get_lnk_source(path)     
         if os.path.isdir(path):
-            get_sounds_recursive(path, snds) 
+            get_folder_sounds_recursive(path, snds) 
         elif is_sound_file(path):
             snds.append(path)
     return snds
 
 def is_sound_file(f):
-    result = True
-    _, ext = os.path.splitext(f)
-    correct_exts = ['.wav', '.wv', '.mp3', '.aif', '.aiff', '.ogg']
-    if ext.lower() not in correct_exts or os.path.basename(f).startswith('._'):
-        result = False
+    result = False
+    if os.path.isfile(f):
+        ext = os.path.splitext(f)[1].lower()
+        sound_exts = ['.wav', '.wv', '.mp3', '.aif', '.aiff', '.ogg']
+        if ext in sound_exts and not os.path.basename(f).startswith('._'):
+            result = True
     return result
 
-def choose_some_sounds(snds):
+def choose_sounds(folder_snds, snd_files):
+    # sound files must be in selection
+    # folders sounds can be chosen or overlooked
+    global num_snds, force_num_snds
     selection = []
-    for _ in range(int(num)):
-        snd = random.choice(snds)
-        selection.append(snd)
+    if (len(snd_files) >= num_snds):
+        selection = snd_files
+    else:
+        selection = folder_snds + snd_files
+        selection = selection[len(selection)-num_snds:]
+    if (num_snds > len(selection)):
+        if (force_num_snds):
+            for _ in range(num_snds-len(selection)):
+                selection.append(random.choice(selection))
+        else:
+            num_snds = len(selection)
+    random.shuffle(selection)
     return selection
+
 
 def gen_temp_files(snds):
     for i, s_path in enumerate(snds):
@@ -103,10 +140,11 @@ def gen_temp_files(snds):
             cmd += 'apad=whole_len={},afade=type=out:ss={}:d={}'.format(num_samples, fade_start, fade_len)
         elif noise_gate != 0:
             cmd += 'silenceremove=start_periods=0:start_duration=0:start_threshold=0:stop_periods=-1:stop_duration=0.01:stop_threshold={}dB'.format(noise_gate)
-        output_path = os.path.join(output_dir, '{}{:02d}.wav'.format(temp_prefix, i))
+        output_path = os.path.join(paths.output_dir, '{}{:02d}.wav'.format(temp_prefix, i))
         cmd += ' -c:a pcm_s16le -ar 44100'      # force 44100 16 bits
         cmd += ' -ac 2'                         # force to stereo
         cmd += ' -y "{}"'.format(output_path)
+        cmd += ' -hide_banner -loglevel error'
         os.system(cmd)
 
 def is_wav_vorbis(s_path):
@@ -124,7 +162,7 @@ def wav_to_ogg(s_path, i):
         b = f.read()
     offset = b.index(b'OggS')
     b = b[offset:]
-    ogg_path = os.path.join(output_dir, '{}{:02d}.ogg'.format(temp_prefix, i))
+    ogg_path = os.path.join(paths.output_dir, '{}{:02d}.ogg'.format(temp_prefix, i))
     with open(ogg_path, 'wb') as f:
         f.write(b)
     return ogg_path
@@ -134,46 +172,50 @@ def get_samplerate(s_path):
     try:
         _, sr = soundfile.read(s_path)
     except:
-        print("error")
+        print("Can't retrieve sample rate of {}".format(s_path), "Arbitrarily say it's {}kHz".format(sr), sep="\n")
         pass
     return sr
 
 def gen_output():
-    os.chdir(output_dir)
-    temp_sounds = [s for s in os.listdir(output_dir) if os.path.basename(s).startswith(temp_prefix) and os.path.basename(s).endswith('.wav')]
-    txt_path = os.path.join(output_dir, "{}.txt".format(temp_prefix))
+    os.chdir(paths.output_dir)
+    temp_sounds = [s for s in os.listdir(paths.output_dir) if os.path.basename(s).startswith(temp_prefix) and os.path.basename(s).endswith('.wav')]
+    if (len(temp_sounds) == 0):
+        msg_box("No temp files found. Exiting.")
+        return
+    txt_path = os.path.join(paths.output_dir, "{}.txt".format(temp_prefix))
     txt = open(txt_path, 'w')
     for s in temp_sounds:
-        txt.write("file '{}'\n".format(os.path.join(output_dir, s)))
+        txt.write("file '{}'\n".format(os.path.join(paths.output_dir, s)))
     txt.close()
     output_name = get_output_name()
-    msg_box(output_name, copy=True)
     cmd = '{} -f concat -safe 0 -i "{}"'.format(paths.ffmpeg_path, txt_path)
     cmd += ' -c copy'                      # copy stream
-    cmd += ' -y "{}.wav"'.format(os.path.join(output_dir, output_name))
+    cmd += ' -y "{}.wav"'.format(os.path.join(paths.output_dir, output_name))
+    cmd += ' -hide_banner -loglevel error'
     os.system(cmd)
+    msg_box(output_name, copy=True)
 
 # --------------------------------------
 def get_output_name():
-    global PATHS, num, longueur, noise_gate
+    global PATHS, num_snds, longueur, noise_gate
     folder_name = format_folder_name(PATHS)
     sound_cut_option = format_sound_cut_option(longueur, noise_gate)
-    output_name = "_".join([folder_name, "n"+str(num), sound_cut_option])
+    output_name = "_".join([folder_name, "n"+str(num_snds), sound_cut_option])
     temp_output_name = output_name
     nth_instance_of_name = 1
-    for f in os.listdir(output_dir):
+    for f in os.listdir(paths.output_dir):
         if f.lower().endswith('.wav'):
             name = os.path.basename(f)[:-4]
             if temp_output_name == name:
                 nth_instance_of_name += 1
             if (nth_instance_of_name > 1):
                 temp_output_name = "{}_{:02d}".format(output_name, nth_instance_of_name)
-    output_name = temp_output_name + ".wav"
+    output_name = temp_output_name
     return output_name
 
 def format_folder_name(paths):
-    global browsing_mode
-    if browsing_mode:
+    global pre_gen_browser_mode
+    if pre_gen_browser_mode:
         words = get_week_day() + "_" + get_random_letters(2) #str(time.time())
     else:
         words = ""
@@ -213,9 +255,9 @@ def get_random_letters(n):
 
 # --------------------------------------
 def delete_temp_files():
-    for f in os.listdir(output_dir):
+    for f in os.listdir(paths.output_dir):
         if f.startswith(temp_prefix):
-            f = os.path.join(output_dir, f)
+            f = os.path.join(paths.output_dir, f)
             os.remove(f)
 
 def msg_box(*msg, copy=False, force=False):
@@ -227,6 +269,7 @@ def msg_box(*msg, copy=False, force=False):
         if copy:
             pyperclip.copy(output)
         ctypes.windll.user32.MessageBoxW(0, output, "", 1)
+        print(output)
         max_msg_box = max_msg_box -1 
 # --------------------------------------
 def is_lnk(path):
@@ -242,12 +285,18 @@ if __name__ == '__main__':
     try:
         delete_temp_files()
         get_args()
-        input_paths = get_input_path()
-        snds = get_sounds(input_paths)
-        snds = choose_some_sounds(snds)
+        input_paths = get_input_paths()
+        if (pre_gen_browser_mode):
+            snd_folders, required_snds = get_pre_gen_browser_snds(input_paths)
+            input_paths += snd_folders
+        folder_snds = get_folder_sounds(input_paths)
+        chosen_snds = choose_sounds(folder_snds, required_snds)
 
-        gen_temp_files(snds)
-        gen_output()
-        delete_temp_files()
+        if (len(chosen_snds) > 0):
+            gen_temp_files(chosen_snds)
+            gen_output()
+            delete_temp_files()
+        else:
+            raise Exception("No sounds chosen.")
     except:
         msg_box(traceback.format_exc(), force=True)
